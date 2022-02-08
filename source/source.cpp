@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -40,7 +40,7 @@ struct BoxBlurVData {
     VSNodeRef *node;
     std::array<int, 3> radius;
 
-    std::mutex buffer_lock;
+    std::shared_mutex buffer_lock;
     std::unordered_map<std::thread::id, void *> buffers;
 };
 
@@ -74,7 +74,7 @@ static void blurV(
     Divisor_ui div = radius * 2 + 1;
     unsigned round = radius * 2;
 
-    for (int x = 0; x < width; x += 8) {
+    for (int x = 0; x < width; x += Vec8ui().size()) {
         auto vec = Vec8ui(_mm256_cvtepu16_epi32(Vec8us().load_a(&src[x])));
         (radius * vec).store_a(&buf[x]);
     }
@@ -205,12 +205,24 @@ static const VSFrameRef *VS_CC BoxBlurVGetFrame(
         {
             auto thread_id = std::this_thread::get_id();
 
-            std::lock_guard<std::mutex> l(d->buffer_lock);
+            bool init {};
+
+            d->buffer_lock.lock_shared();
+
             try {
                 buffer = d->buffers.at(thread_id);
+                init = true;
             } catch (const std::out_of_range & e) {
+                d->buffer_lock.unlock_shared();
+
                 buffer = vs_aligned_malloc(vi->width * 4, 32);
+
+                std::lock_guard<std::shared_mutex> l(d->buffer_lock);
                 d->buffers.emplace(thread_id, buffer);
+            }
+
+            if (init) {
+                d->buffer_lock.unlock_shared();
             }
         }
 
