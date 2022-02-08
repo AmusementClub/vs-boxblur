@@ -1,0 +1,83 @@
+name: Build (Windows)
+
+on:
+  push:
+    paths:
+      - 'source.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'which tag to upload to'
+        default: ''
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+        submodules: true
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Setup Ninja
+      run: pip install ninja
+
+    - name: Download VapourSynth headers
+      run: |
+        curl -s -o vs.zip -L https://github.com/vapoursynth/vapoursynth/archive/refs/tags/R57.zip
+        unzip -q vs.zip
+        mv vapoursynth-*/ vapoursynth/
+
+    - name: Setup LLVM
+      shell: bash
+      run: |
+        curl -s -o llvm-win64.exe -LJO https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.1/LLVM-13.0.1-win64.exe
+        7z x -ollvm llvm-win64.exe
+
+    - name: Configure
+      shell: bash
+      run: cmake -S . -B build -G Ninja
+        -D VS_INCLUDE_DIR="$(pwd)\vapoursynth\include"
+        -D CMAKE_BUILD_TYPE=Release
+        -D CMAKE_CXX_COMPILER="$(pwd)/llvm/bin/clang++.exe"
+        -D CMAKE_CXX_FLAGS="-ffast-math -Wall -Wno-deprecated-declarations"
+        -D CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+    - name: Build
+      run: cmake --build build --verbose
+
+    - name: Install
+      run: cmake --install build --prefix install
+
+    - name: Prepare for upload
+      run: |
+        mkdir artifact
+        copy install\bin\*.dll artifact
+
+    - name: Upload
+      uses: actions/upload-artifact@v2
+      with:
+        name: VapourSynth-BoxBlur-Windows
+        path: artifact
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
+      with:
+        tag_name: ${{ github.event.inputs.tag }}
+        files: artifact\*
+        fail_on_unmatched_files: true
+        generate_release_notes: false
+        prerelease: true
+
