@@ -3,8 +3,8 @@ name: Build (Windows)
 on:
   push:
     paths:
-      - 'source.cpp'
-      - 'CMakeLists.txt'
+      - 'source/source.cpp'
+      - 'source/CMakeLists.txt'
       - '.github/workflows/windows.yml'
   workflow_dispatch:
     inputs:

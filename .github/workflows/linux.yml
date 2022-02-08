@@ -3,8 +3,8 @@ name: Build (Linux)
 on:
   push:
     paths:
-      - 'source.cpp'
-      - 'CMakeLists.txt'
+      - 'source/source.cpp'
+      - 'source/CMakeLists.txt'
       - '.github/workflows/linux.yml'
   workflow_dispatch:
 
