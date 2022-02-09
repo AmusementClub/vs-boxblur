@@ -1,7 +1,7 @@
 # vs-boxblur
-Provides AVX2-vectorized routines for uint16 and float32 inputs.
+AVX2-vectorized box filter.
 
-For int16 input, it favors architectures with fast cross lane shuffle  (e.g. haswell or later architectures of intel) or slow integer division (e.g. pre-zen3 architectures of amd).
+For integer input, it favors architectures with fast cross lane shuffle  (e.g. haswell or later architectures of intel) or slow integer division (e.g. pre-zen3 architectures of amd).
 
 ## Usage
 Prototype:
