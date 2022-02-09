@@ -57,63 +57,102 @@ static void VS_CC BoxBlurVInit(
     vsapi->setVideoInfo(vsapi->getVideoInfo(d->node), 1, node);
 }
 
+template <typename /* integral */ T>
+static
+inline Vec8ui load_vec(const T src[8]) noexcept {
+    static_assert(std::is_integral_v<T>);
+
+    uint32_t tmp[8];
+    for (int i = 0; i < 8; ++i) {
+        tmp[i] = src[i];
+    }
+    return Vec8ui().load(tmp);
+}
+
+static inline void store_vec(uint8_t dst[8], Vec8ui src) noexcept {
+    Vec32uc tmp = reinterpret_i(src);
+
+    Vec16uc dst_tmp = permute32<
+        0, 4, 8, 12, 16, 20, 24, 28,
+        V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC,
+        V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC,
+        V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC
+        >(tmp).get_low();
+
+    uint64_t dst_val = Vec2uq(reinterpret_i(dst_tmp)).extract(0);
+
+    *((uint64_t *) dst) = dst_val;
+}
+
+static inline void store_vec(uint16_t dst[8], Vec8ui src) noexcept {
+    Vec16us tmp = reinterpret_i(src);
+
+    Vec8us dst_vec = permute16<
+        0, 2, 4, 6, 8, 10, 12, 14,
+        V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC
+        >(tmp).get_low();
+
+    dst_vec.store_a(dst);
+}
+
+template <typename T>
 static void blurV(
-    uint16_t *VS_RESTRICT dst,
-    const uint16_t *VS_RESTRICT src,
+    T *VS_RESTRICT dst,
+    const T *VS_RESTRICT src,
     const int width,
     const int height,
     const int stride,
     const int radius,
-    void * buffer // [width]
-) noexcept {
+    void * buffer // [((width + 7) / 8 * 8) * 4]
+) {
 
-    #define permute permute16<0, 2, 4, 6, 8, 10, 12, 14, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC, V_DC>
-
-    uint32_t * buf = reinterpret_cast<uint32_t *>(buffer);
-
+    // utilities
     Divisor_ui div = radius * 2 + 1;
     unsigned round = radius * 2;
 
-    for (int x = 0; x < width; x += Vec8ui().size()) {
-        auto vec = Vec8ui(_mm256_cvtepu16_epi32(Vec8us().load_a(&src[x])));
-        (radius * vec).store_a(&buf[x]);
-    }
-
-    auto for_each_vec = [=](auto func) {
+    uint32_t * buf = reinterpret_cast<uint32_t *>(buffer);
+    auto for_each_vec = [buf, width](auto func) -> void {
         for (int x = 0; x < width; x += Vec8ui().size()) {
             auto vec = Vec8ui().load_a(&buf[x]);
             func(vec, x).store_a(&buf[x]);
         }
     };
 
+    // process
+    for (int x = 0; x < width; x += Vec8ui().size()) {
+        Vec8ui vec = load_vec(&src[x]);
+        (radius * vec).store_a(&buf[x]);
+    }
+
     for (int y = 0; y < radius; y++) {
         for_each_vec([=](Vec8ui vec, int x) {
-            vec += _mm256_cvtepu16_epi32(Vec8us().load_a(&src[std::min(y, height - 1) * stride + x]));
+            vec += load_vec(&src[std::min(y, height - 1) * stride + x]);
             return vec;
         });
     }
+
     for (int y = 0; y < std::min(radius, height); y++) {
         for_each_vec([=](Vec8ui vec, int x) {
-            vec += _mm256_cvtepu16_epi32(Vec8us().load_a(&src[std::min(y + radius, height - 1) * stride + x]));
-            permute((vec + round) / div).get_low().store_a(&dst[y * stride + x]);
-            vec -= _mm256_cvtepu16_epi32(Vec8us().load_a(&src[std::max(y - radius, 0) * stride + x]));
+            vec += load_vec(&src[std::min(y + radius, height - 1) * stride + x]);
+            store_vec(&dst[y * stride + x], (vec + round) / div);
+            vec -= load_vec(&src[std::max(y - radius, 0) * stride + x]);
             return vec;
         });
     }
     if (height > radius) {
         for (int y = radius; y < height - radius; y++) {
             for_each_vec([=](Vec8ui vec, int x) {
-                vec += _mm256_cvtepu16_epi32(Vec8us().load_a(&src[(y + radius) * stride + x]));
-                permute((vec + round) / div).get_low().store_a(&dst[y * stride + x]);
-                vec -= _mm256_cvtepu16_epi32(Vec8us().load_a(&src[(y - radius) * stride + x]));
+                vec += load_vec(&src[(y + radius) * stride + x]);
+                store_vec(&dst[y * stride + x], (vec + round) / div);
+                vec -= load_vec(&src[(y - radius) * stride + x]);
                 return vec;
             });
         }
         for (int y = std::max(height - radius, radius); y < height; y++) {
             for_each_vec([=](Vec8ui vec, int x) {
-                vec += _mm256_cvtepu16_epi32(Vec8us().load_a(&src[std::min(y + radius, height - 1) * stride + x]));
-                permute((vec + round) / div).get_low().store_a(&dst[y * stride + x]);
-                vec -= _mm256_cvtepu16_epi32(Vec8us().load_a(&src[std::max(y - radius, 0) * stride + x]));
+                vec += load_vec(&src[std::min(y + radius, height - 1) * stride + x]);
+                store_vec(&dst[y * stride + x], (vec + round) / div);
+                vec -= load_vec(&src[std::max(y - radius, 0) * stride + x]);
                 return vec;
             });
         }
@@ -127,7 +166,7 @@ static void blurVF(
     const int height,
     const int stride,
     const int radius,
-    void * buffer // [width]
+    void * buffer // [((width + 7) / 8 * 8) * 4]
 ) noexcept {
 
     Vec8f div = static_cast<float>(1) / (radius * 2 + 1);
@@ -215,7 +254,7 @@ static const VSFrameRef *VS_CC BoxBlurVGetFrame(
             } catch (const std::out_of_range & e) {
                 d->buffer_lock.unlock_shared();
 
-                buffer = vs_aligned_malloc(vi->width * 4, 32);
+                buffer = vs_aligned_malloc(((vi->width + 7) / 8 * 8) * 4, 32);
 
                 std::lock_guard<std::shared_mutex> l(d->buffer_lock);
                 d->buffers.emplace(thread_id, buffer);
@@ -241,8 +280,10 @@ static const VSFrameRef *VS_CC BoxBlurVGetFrame(
 
                 if (bytes == 4) {
                     blurVF((float *) dstp, (const float *) srcp, width, height, stride, d->radius[plane], buffer);
-                } else {
+                } else if (bytes == 2) {
                     blurV((uint16_t *) dstp, (const uint16_t *) srcp, width, height, stride, d->radius[plane], buffer);
+                } else if (bytes == 1) {
+                    blurV((uint8_t *) dstp, (const uint8_t *) srcp, width, height, stride, d->radius[plane], buffer);
                 }
             }
         }
@@ -292,7 +333,7 @@ static void VS_CC BoxBlurVCreate(
     const VSVideoInfo * vi = vsapi->getVideoInfo(d->node);
 
     if (const auto fi = vi->format;
-        (fi->sampleType == stInteger && fi->bitsPerSample != 16) ||
+        (fi->sampleType == stInteger && fi->bitsPerSample > 16) ||
         (fi->sampleType == stFloat && fi->bitsPerSample != 32)
     ) {
         vsapi->setError(out, "not supported format");
@@ -332,7 +373,7 @@ static void VS_CC BoxBlurCreate(
 
     // not supported
     if (instrset_detect() < 8 || !hasFMA3() ||
-        (fi->sampleType == stInteger && fi->bitsPerSample != 16) ||
+        (fi->sampleType == stInteger && (fi->bitsPerSample > 16)) ||
         (fi->sampleType == stFloat && fi->bitsPerSample != 32)
     ) {
         vsapi->freeNode(node);
