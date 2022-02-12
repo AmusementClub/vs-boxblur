@@ -1,0 +1,63 @@
+name: Build (Linux, ISPC)
+
+on:
+  push:
+    paths:
+      - 'ispc/*'
+      - '.github/workflows/linux_ispc.yml'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-20.04
+
+    defaults:
+      run:
+        working-directory: ispc
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Setup GCC and Ninja
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y g++-11 ninja-build
+        echo "CC=gcc-11" >> $GITHUB_ENV
+        echo "CXX=g++-11" >> $GITHUB_ENV
+
+    - name: Setup ISPC
+      run: |
+         wget -q -O ispc.tar.gz https://github.com/ispc/ispc/releases/download/v1.17.0/ispc-v1.17.0-linux.tar.gz
+         tar -xf ispc.tar.gz
+         mv ispc*/ ispc
+         echo "ISPC=$(realpath ispc/bin/ispc)" >> $GITHUB_ENV
+
+    - name: Download VapourSynth headers
+      run: |
+        wget -q -O vs.zip https://github.com/vapoursynth/vapoursynth/archive/refs/tags/R57.zip
+        unzip -q vs.zip
+        mv vapoursynth*/ vapoursynth
+
+    - name: Configure
+      run: cmake -S . -B build -G Ninja
+        -D VS_INCLUDE_DIR="`pwd`/vapoursynth/include"
+        -D CMAKE_BUILD_TYPE=Release
+        -D CMAKE_CXX_FLAGS="-Wall"
+        -D CMAKE_ISPC_FLAGS="--opt=fast-math"
+        -D CMAKE_ISPC_INSTRUCTION_SETS="sse2-i32x8;avx1-i32x8;avx2-i32x8;avx512skx-i32x16"
+
+    - name: Build
+      run: cmake --build build --config Release --verbose
+
+    - name: Install
+      run: cmake --install build --prefix artifact
+
+    - name: Upload
+      uses: actions/upload-artifact@v2
+      with:
+        name: VapourSynth-BoxBlur_ISPC-Linux
+        path: ispc/artifact
+

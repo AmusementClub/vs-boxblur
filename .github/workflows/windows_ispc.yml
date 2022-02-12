@@ -1,0 +1,91 @@
+name: Build (Windows, ISPC)
+
+on:
+  push:
+    paths:
+      - 'ispc/*'
+      - '.github/workflows/windows_ispc.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'which tag to upload to'
+        default: ''
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        shell: cmd
+        working-directory: ispc
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Setup Ninja
+      run: pip install ninja
+
+    - name: Download VapourSynth headers
+      run: |
+        curl -s -o vs.zip -L https://github.com/vapoursynth/vapoursynth/archive/refs/tags/R57.zip
+        unzip -q vs.zip
+        mv vapoursynth-*/ vapoursynth/
+
+    - name: Setup LLVM
+      shell: bash
+      run: |
+        curl -s -o llvm-win64.exe -LJO https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.0-rc1/LLVM-14.0.0-rc1-win64.exe
+        7z x -ollvm llvm-win64.exe
+
+    - name: Setup ISPC
+      run: |
+         curl -s -o ispc.zip -LJO https://github.com/ispc/ispc/releases/download/v1.17.0/ispc-v1.17.0-windows.zip
+         unzip -q ispc.zip
+         mv ispc*/ ispc
+
+    - name: Configure
+      shell: bash
+      run: cmake -S . -B build -G Ninja
+        -D VS_INCLUDE_DIR="$(pwd)\vapoursynth\include"
+        -D CMAKE_BUILD_TYPE=Release
+        -D CMAKE_CXX_COMPILER="$(pwd)/llvm/bin/clang++.exe"
+        -D CMAKE_CXX_FLAGS="-Wall -Wno-deprecated-declarations"
+        -D CMAKE_ISPC_COMPILER="$(pwd)/ispc/bin/ispc.exe"
+        -D CMAKE_ISPC_FLAGS="--opt=fast-math"
+        -D CMAKE_ISPC_INSTRUCTION_SETS="sse2-i32x8;avx1-i32x8;avx2-i32x8;avx512skx-i32x16"
+        -D CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+    - name: Build
+      run: cmake --build build --verbose
+
+    - name: Install
+      run: cmake --install build --prefix install
+
+    - name: Prepare for upload
+      run: |
+        mkdir artifact
+        copy install\bin\*.dll artifact
+
+    - name: Upload
+      uses: actions/upload-artifact@v2
+      with:
+        name: VapourSynth-BoxBlur_ISPC-Windows
+        path: ispc/artifact
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
+      with:
+        tag_name: ${{ github.event.inputs.tag }}
+        files: ispc\artifact\*
+        fail_on_unmatched_files: true
+        generate_release_notes: false
+        prerelease: true
+
