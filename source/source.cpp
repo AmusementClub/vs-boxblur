@@ -34,7 +34,12 @@
 
 #include <vectorclass.h>
 
+#ifdef INSIDE_VS
+#define VERSION "builtin"
+#include "internalfilters.h"
+#else
 #include <config.h>
+#endif
 
 struct BoxBlurVData {
     VSNodeRef *node;
@@ -511,7 +516,11 @@ static void VS_CC BoxBlurCreate(
     vsapi->freeNode(node);
 }
 
+#ifdef INSIDE_VS
+VS_EXTERNAL_API(void) vsExtBoxBlurInitialize3(
+#else
 VS_EXTERNAL_API(void) VapourSynthPluginInit(
+#endif
     VSConfigPlugin configFunc,
     VSRegisterFunction registerFunc,
     VSPlugin * plugin
