@@ -76,7 +76,7 @@ jobs:
       if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
       with:
         tag_name: ${{ github.event.inputs.tag }}
-        files: artifact\*
+        files: artifact/*
         fail_on_unmatched_files: true
         generate_release_notes: false
         prerelease: true
