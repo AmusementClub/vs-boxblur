@@ -464,12 +464,14 @@ static void VS_CC BoxBlurCreate(
         }
 
         for (int pass = 0; pass < vpasses; ++pass) {
+            vsapi->propSetNode(in_map, "clip", node, paReplace);
             vsapi->createFilter(
                 in_map, out_map, "BlurV", BoxBlurVInit, BoxBlurVGetFrame, BoxBlurVFree,
                 fmParallel, 0, new BoxBlurVData{ node, radius }, core);
 
             node = vsapi->propGetNode(out_map, "clip", 0, nullptr);
             vsapi->clearMap(out_map);
+            vsapi->clearMap(in_map);
         }
 
         vsapi->freeMap(in_map);
@@ -496,12 +498,14 @@ static void VS_CC BoxBlurCreate(
         }
 
         for (int pass = 0; pass < hpasses; ++pass) {
+            vsapi->propSetNode(vtmp1, "clip", node, paReplace);
             vsapi->createFilter(
                 vtmp1, vtmp2, "BlurV", BoxBlurVInit, BoxBlurVGetFrame, BoxBlurVFree,
                 fmParallel, 0, new BoxBlurVData{ node, radius }, core);
 
             node = vsapi->propGetNode(vtmp2, "clip", 0, &err);
             vsapi->clearMap(vtmp2);
+            vsapi->clearMap(vtmp1);
         }
 
         vsapi->propSetNode(vtmp2, "clip", node, paReplace);
