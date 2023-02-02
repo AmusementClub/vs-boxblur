@@ -510,6 +510,7 @@ static void VS_CC BoxBlurCreate(
 
         vsapi->propSetNode(vtmp2, "clip", node, paReplace);
         vsapi->freeNode(node);
+        vsapi->freeMap(vtmp1);
         vtmp1 = vsapi->invoke(stdplugin, "Transpose", vtmp2);
         vsapi->freeMap(vtmp2);
         node = vsapi->propGetNode(vtmp1, "clip", 0, nullptr);
