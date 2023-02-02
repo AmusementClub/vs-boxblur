@@ -46,7 +46,7 @@ jobs:
 
     - name: Setup ISPC
       run: |
-         curl -s -o ispc.zip -LJO https://github.com/ispc/ispc/releases/download/v1.17.0/ispc-v1.17.0-windows.zip
+         curl -s -o ispc.zip -LJO https://github.com/ispc/ispc/releases/download/v1.18.0/ispc-v1.18.0-windows.zip
          unzip -q ispc.zip
          mv ispc*/ ispc
 
