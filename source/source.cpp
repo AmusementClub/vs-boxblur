@@ -44,6 +44,7 @@
 struct BoxBlurVData {
     VSNodeRef *node;
     std::array<int, 3> radius;
+    bool rounding;
 
     std::shared_mutex buffer_lock;
     std::unordered_map<std::thread::id, void *> buffers;
@@ -108,12 +109,12 @@ static void blurV(
     const int height,
     const int stride,
     const int radius,
-    void * buffer // [((width + 7) / 8 * 8) * 4]
+    void * buffer, // [((width + 7) / 8 * 8) * 4]
+    unsigned round
 ) {
 
     // utilities
     Divisor_ui div = radius * 2 + 1;
-    unsigned round = radius * 2;
 
     uint32_t * buf = reinterpret_cast<uint32_t *>(buffer);
     auto for_each_vec = [buf, width](auto func) -> void {
@@ -283,12 +284,14 @@ static const VSFrameRef *VS_CC BoxBlurVGetFrame(
                 const auto * srcp = vsapi->getReadPtr(src_frame, plane);
                 auto * dstp = vsapi->getWritePtr(dst_frame, plane);
 
+                auto round = (unsigned int) (d->rounding ? d->radius[plane] * 2 : 0);
+
                 if (bytes == 4) {
                     blurVF((float *) dstp, (const float *) srcp, width, height, stride, d->radius[plane], buffer);
                 } else if (bytes == 2) {
-                    blurV((uint16_t *) dstp, (const uint16_t *) srcp, width, height, stride, d->radius[plane], buffer);
+                    blurV((uint16_t *) dstp, (const uint16_t *) srcp, width, height, stride, d->radius[plane], buffer, round);
                 } else if (bytes == 1) {
-                    blurV((uint8_t *) dstp, (const uint8_t *) srcp, width, height, stride, d->radius[plane], buffer);
+                    blurV((uint8_t *) dstp, (const uint8_t *) srcp, width, height, stride, d->radius[plane], buffer, round);
                 }
             }
         }
@@ -467,7 +470,7 @@ static void VS_CC BoxBlurCreate(
             vsapi->propSetNode(in_map, "clip", node, paReplace);
             vsapi->createFilter(
                 in_map, out_map, "BlurV", BoxBlurVInit, BoxBlurVGetFrame, BoxBlurVFree,
-                fmParallel, 0, new BoxBlurVData{ node, radius }, core);
+                fmParallel, 0, new BoxBlurVData{ node, radius, (pass % 2) == 0 }, core);
 
             node = vsapi->propGetNode(out_map, "clip", 0, nullptr);
             vsapi->clearMap(out_map);
@@ -501,7 +504,7 @@ static void VS_CC BoxBlurCreate(
             vsapi->propSetNode(vtmp1, "clip", node, paReplace);
             vsapi->createFilter(
                 vtmp1, vtmp2, "BlurV", BoxBlurVInit, BoxBlurVGetFrame, BoxBlurVFree,
-                fmParallel, 0, new BoxBlurVData{ node, radius }, core);
+                fmParallel, 0, new BoxBlurVData{ node, radius, (pass % 2) == 0 }, core);
 
             node = vsapi->propGetNode(vtmp2, "clip", 0, &err);
             vsapi->clearMap(vtmp2);
